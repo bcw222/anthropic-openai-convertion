@@ -114,6 +114,32 @@ npm run start:bun                 # Bun
 The upstream key is taken from the request, so no key needs to live on the box —
 but you can also just send one.
 
+### Docker
+
+```bash
+docker build -t anthropic-openai-convertion .
+docker run --rm -p 8080:8080 \
+  -e ANTHROPIC_BASE_URL=https://api.anthropic.com \
+  anthropic-openai-convertion
+```
+
+`docker compose up -d` also works (see `docker-compose.yml`).
+
+Where `docker.io` is unreachable, build against a mirror:
+
+```bash
+docker build --build-arg NODE_IMAGE=registry.cn-hangzhou.aliyuncs.com/arm64m/node:24-alpine .
+```
+
+CI publishes a **multi-arch** image (`linux/amd64`, `linux/arm64`) to GHCR:
+
+```bash
+docker pull ghcr.io/gsmainagent/anthropic-openai-convertion:latest
+```
+
+> Building/running the `arm64` variant on an `x86_64` host needs QEMU user-mode
+> binfmt registered (`qemu-user-static`); the CI runner handles this automatically.
+
 ## Use with Open WebUI
 
 Add a normal OpenAI connection (API Type: **Chat Completions**):
