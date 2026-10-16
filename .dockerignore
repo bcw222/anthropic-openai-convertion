@@ -1,0 +1,9 @@
+.git
+.github
+node_modules
+.vercel
+.netlify
+.wrangler
+test
+public
+*.md

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>anthropic-openai-convertion</title>
+  </head>
+  <body style="font-family: system-ui; max-width: 40rem; margin: 4rem auto; padding: 0 1rem">
+    <h1>anthropic-openai-convertion</h1>
+    <p>This endpoint speaks the <b>OpenAI Chat Completions</b> API and forwards to an
+       <b>Anthropic Messages</b> (<code>/v1/messages</code>) upstream.</p>
+    <p>Point your OpenAI-compatible client's base URL at this deployment and use your
+       Anthropic key (or whatever key your upstream expects) as the API key.</p>
+    <ul>
+      <li><code>POST /v1/chat/completions</code></li>
+      <li><code>GET /v1/models</code></li>
+    </ul>
+    <p>404 here is expected if you opened this in a browser.</p>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "anthropic-openai-convertion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAI-compatible frontend for the Anthropic Messages API. Serverless!",
+  "scripts": {
+    "start": "node node.mjs",
+    "dev": "nodemon --watch node.mjs --watch src/*.mjs node.mjs",
+    "start:deno": "deno --allow-env --allow-net deno.mjs",
+    "dev:deno": "deno --watch --allow-env --allow-net deno.mjs",
+    "start:bun": "bun bun.mjs",
+    "dev:bun": "bun --watch bun.mjs",
+    "test": "node test/smoke.mjs"
+  },
+  "dependencies": {
+    "@whatwg-node/server": "0.9"
+  },
+  "devDependencies": {
+    "nodemon": "3"
+  }
+}
