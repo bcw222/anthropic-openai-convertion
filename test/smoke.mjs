@@ -10,7 +10,10 @@ import { createServer } from "node:http";
 /* ------------------------------------------------------------ mock upstream */
 
 let lastRequestBody = null;
+let modelsHits = 0;
+let failModels = false;
 const MODEL = "claude-sonnet-5";
+const MODEL2 = "claude-haiku-4-5";
 
 const sse = (obj) => `event: ${obj.type}\ndata: ${JSON.stringify(obj)}\n\n`;
 
@@ -19,8 +22,20 @@ const upstream = createServer((req, res) => {
   req.on("data", (c) => (raw += c));
   req.on("end", () => {
     if (req.method === "GET" && req.url.startsWith("/v1/models")) {
+      modelsHits++;
+      if (failModels) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "upstream down" } }));
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ data: [{ id: MODEL, display_name: "Claude Sonnet 5" }], has_more: false }));
+      res.end(JSON.stringify({
+        data: [
+          { id: MODEL, display_name: "Claude Sonnet 5" },
+          { id: MODEL2, display_name: "Claude Haiku 4.5" },
+        ],
+        has_more: false,
+      }));
       return;
     }
     if (req.method === "POST" && req.url.startsWith("/v1/messages")) {
@@ -103,6 +118,60 @@ console.log("\n[models]");
   const json = await res.json();
   ok(res.status === 200, "GET /v1/models -> 200");
   ok(json.object === "list" && json.data[0].id === MODEL, "model list reshaped to OpenAI");
+  ok(json.data.length === 2, "all upstream models returned by default");
+}
+
+console.log("\n[ENABLED_MODELS: all static → upstream not contacted]");
+{
+  const before = modelsHits;
+  process.env.ENABLED_MODELS = " claude-sonnet-5 , my-custom-model ";
+  const json = await (await call("/v1/models")).json();
+  ok(json.data.map((m) => m.id).join(",") === "claude-sonnet-5,my-custom-model", "static entries in config order (trimmed)");
+  ok(modelsHits === before, "no upstream request at all");
+  delete process.env.ENABLED_MODELS;
+}
+
+console.log("\n[ENABLED_MODELS: pattern expands against upstream]");
+{
+  const before = modelsHits;
+  process.env.ENABLED_MODELS = "claude-*";
+  const json = await (await call("/v1/models")).json();
+  ok(modelsHits === before + 1, "upstream contacted exactly once");
+  ok(json.data.map((m) => m.id).join(",") === "claude-sonnet-5,claude-haiku-4-5", "both claude-* models, upstream order");
+
+  process.env.ENABLED_MODELS = "claude-*,nothing-matches-*";
+  const json2 = await (await call("/v1/models")).json();
+  ok(json2.data.length === 2, "non-matching pattern contributes nothing");
+  delete process.env.ENABLED_MODELS;
+}
+
+console.log("\n[ENABLED_MODELS: mixed literal + pattern]");
+{
+  process.env.ENABLED_MODELS = "claude-haiku-4-5,zzz-custom";
+  const json = await (await call("/v1/models")).json();
+  ok(json.data.map((m) => m.id).join(",") === "claude-haiku-4-5,zzz-custom", "all-static literals in config order");
+
+  process.env.ENABLED_MODELS = "claude-*,zzz-custom";
+  const json2 = await (await call("/v1/models")).json();
+  const ids = json2.data.map((m) => m.id);
+  ok(ids[0] === "claude-sonnet-5" && ids[2] === "zzz-custom", "pattern expands in place; unknown literal still served");
+  delete process.env.ENABLED_MODELS;
+}
+
+console.log("\n[ENABLED_MODELS: upstream fails → static only]");
+{
+  failModels = true;
+  process.env.ENABLED_MODELS = "claude-sonnet-5,claude-*";
+  const json = await (await call("/v1/models")).json();
+  ok(json.data.length === 1 && json.data[0].id === "claude-sonnet-5", "only the static entry survives (HTTP 500)");
+
+  const saved = process.env.ANTHROPIC_BASE_URL;
+  process.env.ANTHROPIC_BASE_URL = "http://127.0.0.1:1"; // fetch throws
+  const json2 = await (await call("/v1/models")).json();
+  ok(json2.data.length === 1 && json2.data[0].id === "claude-sonnet-5", "only the static entry survives (fetch throws)");
+  process.env.ANTHROPIC_BASE_URL = saved;
+  failModels = false;
+  delete process.env.ENABLED_MODELS;
 }
 
 /* -------------------------------------------------------- non-streaming --- */

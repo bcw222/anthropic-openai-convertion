@@ -23,6 +23,10 @@
  *   ANTHROPIC_AUTH_STYLE   x-api-key | bearer | both      default x-api-key
  *   DEFAULT_MODEL          used when a request omits model
  *   DEFAULT_MAX_TOKENS     Anthropic requires max_tokens   default 4096
+ *   ENABLED_MODELS         optional /v1/models allowlist: comma-separated ids
+ *                          or globs (`*` `?`). An all-static list never touches
+ *                          the upstream; patterns need it to expand; if that
+ *                          request fails, only the static entries are served.
  *
  * Auth in : Authorization: Bearer <key>  (or x-api-key: <key>)
  * Auth out: x-api-key / Authorization: Bearer  per ANTHROPIC_AUTH_STYLE
@@ -160,7 +164,18 @@ function upstreamHeaders(apiKey, extra = {}, incoming) {
 
 /* ------------------------------------------------------------- models ---- */
 
-async function handleModels(apiKey) {
+const isPattern = (s) => /[*?]/.test(s);
+
+// "claude-*" → /^claude-.*$/i  (anchored, case-insensitive; `*` any run, `?` one char)
+const patternToRegExp = (p) =>
+  new RegExp(
+    "^" + p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$",
+    "i",
+  );
+
+const modelEntry = (id) => ({ id, object: "model", created: 0, owned_by: "anthropic" });
+
+async function requestUpstreamModels(apiKey) {
   const out = [];
   let url = modelsUrl();
   let afterId;
@@ -169,18 +184,81 @@ async function handleModels(apiKey) {
     u.searchParams.set("limit", "1000");
     if (afterId) u.searchParams.set("after_id", afterId);
     const res = await fetch(u.toString(), { headers: upstreamHeaders(apiKey) });
-    if (!res.ok) return new Response(await res.text(), fixCors(res));
+    if (!res.ok) return { ok: false, status: res.status, text: await res.text() };
     const body = await res.json();
     for (const m of body.data ?? body.models ?? []) {
       const id = m.id ?? m.name;
       if (!id) continue;
-      out.push({ id: String(id).replace(/^models\//, ""), object: "model", created: 0, owned_by: m.owned_by ?? "anthropic" });
+      out.push({
+        id: String(id).replace(/^models\//, ""),
+        object: "model",
+        created: 0,
+        owned_by: m.owned_by ?? "anthropic",
+      });
     }
     if (!body.has_more) break;
     afterId = body.last_id;
     if (!afterId) break;
   }
-  return jsonResponse({ object: "list", data: out });
+  return { ok: true, models: out };
+}
+
+/**
+ * Model list.
+ *
+ * Default: everything the upstream reports.
+ * With ENABLED_MODELS set only the configured entries are served:
+ *   - exact ids are served as-is, and an all-static list never touches upstream;
+ *   - glob patterns (`*`, `?`) still need the upstream list to expand against —
+ *     and if that request fails, only the static entries survive.
+ */
+async function handleModels(apiKey) {
+  const spec = (env("ENABLED_MODELS", "") || "").trim();
+  const entries = spec ? spec.split(",").map((s) => s.trim()).filter(Boolean) : [];
+
+  if (!entries.length) {
+    let upstream;
+    try {
+      upstream = await requestUpstreamModels(apiKey);
+    } catch (err) {
+      return jsonResponse({ error: { message: err?.message ?? String(err) } }, { status: 502 });
+    }
+    if (!upstream.ok) return new Response(upstream.text, cors({ status: upstream.status }));
+    return jsonResponse({ object: "list", data: upstream.models });
+  }
+
+  // A pattern can only be expanded against the upstream list, so it must be
+  // fetched; an all-static list is served without any upstream request.
+  const needsUpstream = entries.some(isPattern);
+  let upstream = null;
+  if (needsUpstream) {
+    try {
+      const r = await requestUpstreamModels(apiKey);
+      if (r.ok) upstream = r.models;
+      else console.warn(`ENABLED_MODELS: upstream model list failed (HTTP ${r.status}); static entries only`);
+    } catch (err) {
+      console.warn(`ENABLED_MODELS: upstream model list failed (${err}); static entries only`);
+    }
+  }
+
+  const data = [];
+  const seen = new Set();
+  const push = (m) => {
+    if (m && !seen.has(m.id)) {
+      seen.add(m.id);
+      data.push(m);
+    }
+  };
+  for (const entry of entries) {
+    if (isPattern(entry)) {
+      if (!upstream) continue; // upstream failed → static part only
+      const re = patternToRegExp(entry);
+      for (const m of upstream) if (re.test(m.id)) push(m);
+    } else {
+      push(upstream?.find((m) => m.id.toLowerCase() === entry.toLowerCase()) ?? modelEntry(entry));
+    }
+  }
+  return jsonResponse({ object: "list", data });
 }
 
 /* -------------------------------------------------------- completions ---- */

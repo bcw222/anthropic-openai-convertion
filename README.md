@@ -48,6 +48,7 @@ change how the key is sent upstream (`x-api-key` default, `bearer`, or `both`).
 | `ANTHROPIC_AUTH_STYLE` | `x-api-key` | `x-api-key` \| `bearer` \| `both`. |
 | `DEFAULT_MODEL` | *(empty)* | Used when a request omits `model`. |
 | `DEFAULT_MAX_TOKENS` | `4096` | Anthropic requires `max_tokens`; used when absent. |
+| `ENABLED_MODELS` | *(empty)* | Optional `/v1/models` allowlist — exact ids or globs (`*`, `?`; case-insensitive). All-static lists skip the upstream request entirely; patterns are expanded against it; if that request fails, only the static entries are served. |
 | `PORT` | `8080` | Local adapters only. |
 
 ### Examples
@@ -68,6 +69,24 @@ ANTHROPIC_MODELS_URL=https://opencode.ai/inference/v1/models
 ANTHROPIC_BASE_URL=https://your-relay.example.com/some/anthropic   # no /v1
 ANTHROPIC_AUTH_STYLE=bearer                                        # if it wants Bearer
 ```
+
+### Curating the model list (`ENABLED_MODELS`)
+
+`GET /v1/models` normally mirrors whatever the upstream reports. `ENABLED_MODELS` curates it:
+
+```
+ENABLED_MODELS=claude-sonnet-5,claude-haiku-*,my-custom-model
+```
+
+- Comma-separated; each entry is an **exact id** or a **glob pattern**
+  (`*` = any run, `?` = one character; matching is case-insensitive).
+- **All-static list** (no `*`/`?`): the upstream is **not contacted at all** —
+  handy when the upstream has no `/v1/models` route (e.g. an Anthropic-only
+  relay) or when it is slow.
+- **Any pattern present**: the upstream list is fetched once and patterns expand
+  against it (literals that upstream does not list are still served).
+- **Upstream request fails**: only the static (literal) entries are returned —
+  the endpoint degrades instead of erroring.
 
 ## Deploy
 
