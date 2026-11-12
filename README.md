@@ -1,3 +1,5 @@
+> **AI 项目声明**：本项目为**纯 AI 项目**——仓库主要由 AI（LLM）生成，人类仅负责需求描述与验收，对代码的可靠性不做保证。
+
 # anthropic-openai-convertion
 
 > OpenAI-compatible frontend for the **Anthropic Messages API**. Serverless!
